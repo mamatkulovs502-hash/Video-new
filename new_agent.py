@@ -84,5 +84,4 @@ def main():
         time.sleep(1)
 
 
-if name == "__main__":
-    main()
+main()
