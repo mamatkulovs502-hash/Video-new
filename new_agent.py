@@ -16,7 +16,6 @@ MAX_ITEMS = 10
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 
 def recent_items():
@@ -27,42 +26,29 @@ def recent_items():
         for e in feed.entries:
             t = e.get("published_parsed") or e.get("updated_parsed")
             if t and calendar.timegm(t) >= cutoff:
+                summary = re.sub(r"<[^>]+>", "", e.get("summary", "")).strip()
                 items.append({
                     "title": e.get("title", ""),
                     "link": e.get("link", ""),
-                    "summary": re.sub(r"<[^>]+>", "", e.get("summary", ""))[:600],
+                    "summary": summary[:300],
                 })
     return items
 
 
-def to_uzbek(item):
-    if not ANTHROPIC_KEY:
-        return item["title"]
-    prompt = (
-        "Quyidagi videografiya yangiligini o'zbek tiliga (lotin) o'gir: "
-        "bitta sarlavha qatori, keyin 1-2 gapli qisqa xulosa. Boshqa narsa yozma.\n\n"
-        f"Sarlavha: {item['title']}\nMatn: {item['summary']}"
-    )
+def translate(text):
+    if not text:
+        return ""
     try:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-5-5",
-                "max_tokens": 400,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=60,
+        r = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "en", "tl": "uz", "dt": "t", "q": text},
+            timeout=30,
         )
         r.raise_for_status()
-        return r.json()["content"][0]["text"].strip()
+        return "".join(part[0] for part in r.json()[0] if part[0])
     except Exception as exc:
         print("Tarjima xatosi:", exc)
-        return item["title"]
+        return text
 
 
 def send(text):
@@ -80,7 +66,13 @@ def main():
         print("Yangi maqola yo'q")
         return
     for item in items:
-        send(f"{to_uzbek(item)}\n\n{item['link']}")
+        title = translate(item["title"])
+        summary = translate(item["summary"])
+        text = title
+        if summary:
+            text += "\n\n" + summary
+        text += "\n\n" + item["link"]
+        send(text)
         time.sleep(1)
 
 
